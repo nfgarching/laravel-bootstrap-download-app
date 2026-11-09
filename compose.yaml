@@ -1,0 +1,55 @@
+# Download-Portal hinter Traefik.
+#
+# Voraussetzung: Traefik läuft bereits und hängt an einem externen Docker-Netz
+# (TRAEFIK_NETWORK). Das Portal veröffentlicht selbst keinen Port.
+
+services:
+  app:
+    build: .
+    image: laravel-bootstrap-download-app:latest
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - storage:/app/storage
+      - database:/app/database/data
+    networks:
+      - traefik
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/up"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=${TRAEFIK_NETWORK:-traefik}
+      - traefik.http.routers.download-portal.rule=Host(`${PORTAL_HOST:?PORTAL_HOST in .env setzen}`)
+      - traefik.http.routers.download-portal.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}
+      - traefik.http.routers.download-portal.tls=true
+      - traefik.http.routers.download-portal.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}
+      - traefik.http.services.download-portal.loadbalancer.server.port=8080
+
+  # Stündlicher Löschlauf (php artisan portal:prune).
+  scheduler:
+    image: laravel-bootstrap-download-app:latest
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PORTAL_RUN_MIGRATIONS: "false"
+    command: ["php", "artisan", "schedule:work"]
+    volumes:
+      - storage:/app/storage
+      - database:/app/database/data
+    network_mode: none
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  storage:
+  database:
+
+networks:
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik}
