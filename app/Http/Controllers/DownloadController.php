@@ -3,15 +3,22 @@
 namespace App\Http\Controllers;
 
 use App\Models\FileDownload;
+use App\Models\ShipmentFile;
 use App\Models\ShipmentRecipient;
 use App\Services\EventLogger;
 use App\Services\Vault;
+use App\Support\ChunkStream;
 use App\Support\Secrets;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
+use OverflowException;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
+use ZipStream\CompressionMethod;
+use ZipStream\ZipStream;
 
 /**
  * Abruf einer Sendung über den persönlichen Link.
@@ -192,6 +199,148 @@ class DownloadController extends Controller
                 'Cache-Control' => 'no-store, private',
             ],
         );
+    }
+
+    /**
+     * Alle Dateien der Sendung als ZIP. Die Dateien werden direkt aus dem Vault
+     * entschlüsselt und unkomprimiert in das ZIP gestreamt; Klartext landet
+     * dabei nie auf der Platte. Zählt als ein Abruf je enthaltener Datei und
+     * gelingt nur, wenn bei allen Dateien noch ein Abruf möglich ist.
+     */
+    public function downloadZip(Request $request, string $token): Response
+    {
+        $recipient = $this->resolve($token);
+
+        if ($recipient === null) {
+            return $this->unavailable();
+        }
+
+        if (! $this->isUnlocked($request, $recipient)) {
+            return redirect()->route('download.show', ['token' => $token]);
+        }
+
+        $shipment = $recipient->shipment;
+
+        $files = $shipment->files()->whereNull('purged_at')->orderBy('id')->get()
+            ->filter(fn (ShipmentFile $file) => $this->vault->exists($file->path))
+            ->values();
+
+        if ($files->isEmpty()) {
+            return $this->unavailable();
+        }
+
+        try {
+            $keys = $files->mapWithKeys(fn (ShipmentFile $file) => [$file->id => $this->vault->unwrapKey($file->wrapped_key)]);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return $this->unavailable();
+        }
+
+        // Alle Zähler in einer Transaktion: entweder für jede Datei ein Abruf oder für keine.
+        try {
+            DB::transaction(function () use ($files, $recipient, $shipment) {
+                foreach ($files as $file) {
+                    $download = FileDownload::firstOrCreate([
+                        'shipment_recipient_id' => $recipient->id,
+                        'shipment_file_id' => $file->id,
+                    ]);
+
+                    $counted = FileDownload::query()
+                        ->whereKey($download->id)
+                        ->where('download_count', '<', $shipment->max_downloads)
+                        ->increment('download_count', 1, ['last_downloaded_at' => now()]);
+
+                    if ($counted === 0) {
+                        throw new OverflowException;
+                    }
+                }
+            });
+        } catch (OverflowException) {
+            $this->events->log(EventLogger::DOWNLOAD_LIMIT_REACHED, $shipment, $recipient, meta: ['zip' => true], ip: $request->ip());
+
+            return redirect()->route('download.show', ['token' => $token])
+                ->with('portal_error', __('portal.limit_reached_zip'));
+        }
+
+        foreach ($files as $file) {
+            $this->events->log(EventLogger::FILE_DOWNLOADED, $shipment, $recipient, $file, meta: ['zip' => true], ip: $request->ip());
+        }
+
+        $vault = $this->vault;
+        $names = $this->uniqueNames($files);
+
+        // ZIP64 nur, wenn das Archiv die 4-GB-Grenze erreichen kann: Ältere
+        // Entpacker (z. B. Info-ZIP ohne ZIP64) lehnen sonst jedes Archiv ab.
+        $zip64 = $files->sum('size') + $files->count() * 1024 >= 0xFFFFFFFF;
+
+        return response()->streamDownload(
+            function () use ($vault, $files, $keys, $names, $zip64) {
+                $zip = new ZipStream(
+                    outputStream: fopen('php://output', 'wb'),
+                    defaultCompressionMethod: CompressionMethod::STORE,
+                    enableZip64: $zip64,
+                    sendHttpHeaders: false,
+                    flushOutput: true,
+                );
+
+                foreach ($files as $index => $file) {
+                    $zip->addFileFromPsr7Stream(
+                        fileName: $names[$index],
+                        stream: new ChunkStream($vault->decryptChunks($file->path, $keys[$file->id]), $file->size),
+                        lastModificationDateTime: $file->created_at,
+                        exactSize: $file->size,
+                    );
+                }
+
+                $zip->finish();
+            },
+            $this->zipName($shipment->subject),
+            [
+                'Content-Type' => 'application/zip',
+                'X-Content-Type-Options' => 'nosniff',
+                'Cache-Control' => 'no-store, private',
+            ],
+        );
+    }
+
+    /**
+     * Gleichnamige Dateien bekommen im ZIP einen Zähler: "Brief.pdf", "Brief (2).pdf".
+     *
+     * @param  Collection<int, ShipmentFile>  $files
+     * @return list<string>
+     */
+    private function uniqueNames(Collection $files): array
+    {
+        $seen = [];
+        $names = [];
+
+        foreach ($files as $file) {
+            $name = $file->name;
+            $key = mb_strtolower($name);
+            $number = 1;
+
+            while (isset($seen[$key])) {
+                $number++;
+                $info = pathinfo($file->name);
+                $extension = isset($info['extension']) ? '.'.$info['extension'] : '';
+                $name = $info['filename']." ({$number})".$extension;
+                $key = mb_strtolower($name);
+            }
+
+            $seen[$key] = true;
+            $names[] = $name;
+        }
+
+        return $names;
+    }
+
+    private function zipName(string $subject): string
+    {
+        $name = trim((string) preg_replace('/[^\pL\pN ._-]+/u', '', $subject));
+        $name = mb_substr($name, 0, 80);
+
+        return ($name === '' ? 'Dokumente' : $name).'.zip';
     }
 
     private function resolve(string $token): ?ShipmentRecipient

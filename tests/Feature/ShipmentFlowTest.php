@@ -189,21 +189,86 @@ class ShipmentFlowTest extends TestCase
         // Falsche Signatur.
         $headers = $this->signedHeaders('POST', '/api/v1/shipments', hash('sha256', $body));
         $headers['HTTP_X_SIGNATURE'] = str_repeat('0', 64);
-        $this->call('POST', '/api/v1/shipments', [], [], [], $headers, $body)->assertUnauthorized();
+        $this->call('POST', '/api/v1/shipments', [], [], [], $headers + ['CONTENT_TYPE' => 'application/json'], $body)->assertUnauthorized();
 
         // Gültig, danach derselbe Aufruf noch einmal (Wiedereinspielen).
         $headers = $this->signedHeaders('POST', '/api/v1/shipments', hash('sha256', $body));
-        $this->call('POST', '/api/v1/shipments', [], [], [], $headers, $body)->assertCreated();
-        $this->call('POST', '/api/v1/shipments', [], [], [], $headers, $body)->assertUnauthorized();
+        $this->call('POST', '/api/v1/shipments', [], [], [], $headers + ['CONTENT_TYPE' => 'application/json'], $body)->assertCreated();
+        $this->call('POST', '/api/v1/shipments', [], [], [], $headers + ['CONTENT_TYPE' => 'application/json'], $body)->assertUnauthorized();
 
         // Veralteter Zeitstempel.
         $headers = $this->signedHeaders('POST', '/api/v1/shipments', hash('sha256', $body), time() - 3600);
-        $this->call('POST', '/api/v1/shipments', [], [], [], $headers, $body)->assertUnauthorized();
+        $this->call('POST', '/api/v1/shipments', [], [], [], $headers + ['CONTENT_TYPE' => 'application/json'], $body)->assertUnauthorized();
 
         // Prüfsumme passt nicht zum Dateiinhalt.
         $shipmentId = $this->createShipment(['password' => false]);
         $this->uploadFile($shipmentId, 'a.txt', 'Hallo', hash('sha256', 'etwas anderes'))->assertStatus(422);
         $this->assertSame(0, ShipmentFile::count());
+    }
+
+    public function test_zip_contains_all_files_and_counts_each(): void
+    {
+        $large = random_bytes(Vault::CHUNK * 3 + 7);
+
+        $shipmentId = $this->createShipment(['password' => true]);
+        $this->uploadFile($shipmentId, 'Brief.pdf', 'Erster Brief')->assertCreated();
+        $this->uploadFile($shipmentId, 'Brief.pdf', 'Zweiter Brief')->assertCreated();
+        $this->uploadFile($shipmentId, 'Anlage.bin', $large)->assertCreated();
+
+        $recipient = $this->api('POST', "/api/v1/shipments/{$shipmentId}/release")->json('data.recipients.0');
+        $linkToken = substr($recipient['url'], strlen('https://portal.test/d/'));
+
+        // Ohne Passwort kein ZIP.
+        $this->post("/d/{$linkToken}/zip")->assertRedirect("/d/{$linkToken}");
+
+        $this->post("/d/{$linkToken}/unlock", ['password' => $recipient['password']])->assertRedirect();
+        $this->get("/d/{$linkToken}")->assertOk()->assertSee('Alle als ZIP herunterladen');
+
+        $response = $this->post("/d/{$linkToken}/zip")->assertOk();
+        $this->assertSame('application/zip', $response->headers->get('Content-Type'));
+        $this->assertStringContainsString('Testsendung.zip', (string) $response->headers->get('Content-Disposition'));
+
+        $path = tempnam(sys_get_temp_dir(), 'portal-zip');
+        file_put_contents($path, $response->streamedContent());
+
+        $zip = new \ZipArchive;
+        $this->assertTrue($zip->open($path) === true);
+        $this->assertSame(3, $zip->numFiles);
+        $this->assertSame('Erster Brief', $zip->getFromName('Brief.pdf'));
+        $this->assertSame('Zweiter Brief', $zip->getFromName('Brief (2).pdf'));
+        $this->assertSame($large, $zip->getFromName('Anlage.bin'));
+        $zip->close();
+        unlink($path);
+
+        // Jede Datei zählt einen Abruf.
+        $this->api('GET', "/api/v1/shipments/{$shipmentId}")
+            ->assertOk()
+            ->assertJsonPath('data.recipients.0.downloads', 3);
+
+        $downloads = collect($this->api('GET', '/api/v1/events')->json('data'))->where('type', 'file.downloaded');
+        $this->assertCount(3, $downloads);
+    }
+
+    public function test_zip_is_refused_without_counting_when_one_file_reached_the_limit(): void
+    {
+        $shipmentId = $this->createShipment(['password' => false], ['max_downloads' => 1]);
+        $this->uploadFile($shipmentId, 'a.txt', 'A')->assertCreated();
+        $this->uploadFile($shipmentId, 'b.txt', 'B')->assertCreated();
+
+        $url = $this->api('POST', "/api/v1/shipments/{$shipmentId}/release")->json('data.recipients.0.url');
+        $linkToken = substr($url, strlen('https://portal.test/d/'));
+        $first = ShipmentFile::orderBy('id')->firstOrFail();
+
+        $this->post("/d/{$linkToken}/files/{$first->uuid}")->assertOk()->streamedContent();
+
+        $this->post("/d/{$linkToken}/zip")
+            ->assertRedirect("/d/{$linkToken}")
+            ->assertSessionHas('portal_error');
+
+        // Die zweite Datei wurde durch den abgelehnten ZIP-Abruf nicht verbraucht.
+        $this->api('GET', "/api/v1/shipments/{$shipmentId}")
+            ->assertOk()
+            ->assertJsonPath('data.recipients.0.downloads', 1);
     }
 
     public function test_idempotency_key_returns_the_same_shipment(): void

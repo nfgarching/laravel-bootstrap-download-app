@@ -9,4 +9,5 @@ Route::middleware('throttle:60,1')->group(function () {
     Route::get('/d/{token}', [DownloadController::class, 'show'])->name('download.show');
     Route::post('/d/{token}/unlock', [DownloadController::class, 'unlock'])->name('download.unlock');
     Route::post('/d/{token}/files/{file}', [DownloadController::class, 'download'])->name('download.file');
+    Route::post('/d/{token}/zip', [DownloadController::class, 'downloadZip'])->name('download.zip');
 });

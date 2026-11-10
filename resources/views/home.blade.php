@@ -1,5 +1,5 @@
 @extends('layouts.portal')
 
 @section('content')
-    <p>{{ __('portal.home_text') }}</p>
+    <p class="mb-0">{{ __('portal.home_text') }}</p>
 @endsection

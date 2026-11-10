@@ -19,6 +19,13 @@ return [
     'wrong_password' => 'Das Passwort ist nicht richtig.',
     'too_many_attempts' => 'Zu viele Fehlversuche. Bitte versuchen Sie es in :minutes Minuten erneut.',
     'limit_reached' => 'Diese Datei wurde bereits so oft abgerufen wie zulässig. Bitte wenden Sie sich an uns.',
+    'limit_reached_zip' => 'Mindestens eine Datei wurde bereits so oft abgerufen wie zulässig. Bitte laden Sie die übrigen Dateien einzeln herunter.',
+    'download_all' => 'Alle als ZIP herunterladen',
+    'download_all_hint' => 'Zählt als ein Abruf je Datei.',
+    'download_hint' => 'Der Download startet erst, wenn Sie auf die Schaltfläche klicken.',
+    'footer' => 'Übertragung verschlüsselt. Die Dokumente werden nach Ablauf der Frist automatisch gelöscht.',
+    'imprint' => 'Impressum',
+    'privacy' => 'Datenschutz',
 
     'unavailable_title' => 'Link nicht verfügbar',
     'unavailable_text' => 'Dieser Link ist ungültig, abgelaufen oder gesperrt. Bitte wenden Sie sich an den Absender, wenn Sie die Dokumente noch benötigen.',

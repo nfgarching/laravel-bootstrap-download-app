@@ -155,6 +155,19 @@ class Vault
      */
     public function decryptStream(string $relativePath, string $fileKey, callable $sink): void
     {
+        foreach ($this->decryptChunks($relativePath, $fileKey) as $plain) {
+            $sink($plain);
+        }
+    }
+
+    /**
+     * Entschlüsselt eine Datei blockweise und liefert die Klartextblöcke nacheinander.
+     * Ein Fehler (Manipulation, Abschneiden) wird erst beim betroffenen Block geworfen.
+     *
+     * @return \Generator<int, string>
+     */
+    public function decryptChunks(string $relativePath, string $fileKey): \Generator
+    {
         $input = @fopen($this->absolutePath($relativePath), 'rb');
 
         if ($input === false) {
@@ -189,7 +202,7 @@ class Vault
                 $finished = $tag === SODIUM_CRYPTO_SECRETSTREAM_XCHACHA20POLY1305_TAG_FINAL;
 
                 if ($plain !== '') {
-                    $sink($plain);
+                    yield $plain;
                 }
             }
         } finally {

@@ -8,22 +8,32 @@ Das Portal ist eine eigenständige Laravel-Anwendung für einen öffentlichen Se
 Es hat keinen Zugriff auf die interne Anwendung; alle Verbindungen gehen von innen
 nach außen.
 
-> **Stand: Phase 1 (Grundgerüst).** Der Code ist geschrieben, aber noch nicht in
-> einer Laravel-Installation gelaufen. Vor dem ersten Einsatz `composer install`
-> und `php artisan test` ausführen. Getestet sind bisher nur die
-> Dateiverschlüsselung und das Signaturverfahren, jeweils für sich allein.
+> **Stand: Phase 2, Portalseite.** Läuft im Testbetrieb (Laravel 13, PHP 8.4),
+> alle Tests grün. Das Client-Package für die interne Anwendung
+> (`laravel-bootstrap-share`) fehlt noch.
 
-## Was Phase 1 kann
+## Was das Portal kann
 
 - API für Sendungen: anlegen, Dateien hochladen, freigeben, ändern, widerrufen, Protokoll abholen ([docs/api.md](docs/api.md))
 - Anmeldung der API mit Token, Zeitstempel und HMAC-Signatur; jede Signatur gilt einmal
 - Dateien liegen nur verschlüsselt auf dem Server (libsodium, eigener Schlüssel je Datei, umhüllt mit einem Hauptschlüssel außerhalb der Datenbank)
 - Abrufseite mit persönlichem Link je Empfänger, Passwort, Abruflimit und Sperre nach Fehlversuchen
+- Download einzeln oder alle Dateien als ZIP; das ZIP wird direkt aus dem verschlüsselten Speicher gestreamt, ohne Klartext-Zwischendatei
+- Layout mit Bootstrap 5.3 und Bootstrap Icons, lokal ausgeliefert (`public/vendor/`, aktualisieren mit `scripts/update-assets.sh`), hell/dunkel nach Systemeinstellung
+- Links auf Impressum und Datenschutz im Fuß jeder Seite (`PORTAL_IMPRINT_URL`, `PORTAL_PRIVACY_URL`)
 - Stündlicher Löschlauf für abgelaufene Sendungen
 - Docker-Setup hinter Traefik
 
-Noch nicht enthalten: Layout mit `laravel-bootstrap-core`, ZIP-Download,
-Empfängerkonten, Rückkanal (Upload), E-Mail-Versand durch das Portal.
+Noch nicht enthalten: Empfängerkonten, Rückkanal (Upload), E-Mail-Versand durch das Portal.
+
+Zum Layout: `laravel-bootstrap-core` ist bewusst noch nicht eingebunden. Es bringt
+Livewire, Anmeldung und Registrierung mit und lädt Bootstrap vom CDN; das passt nicht
+zur strikten CSP ohne Fremdinhalte und vergrößert die Angriffsfläche einer Seite ohne
+Login. Die Optik entspricht den übrigen Anwendungen (Bootstrap 5.3, Petrol `#115e59`).
+Über die Einbindung wird mit den Empfängerkonten (Phase 3) neu entschieden.
+
+ZIP-Archive verwenden ZIP64 nur, wenn sie die 4-GB-Grenze erreichen können; so
+lassen sie sich auch mit älteren Entpackern öffnen.
 
 ## Einrichtung mit Docker hinter Traefik
 

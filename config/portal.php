@@ -26,6 +26,10 @@ return [
 
     'sender_name' => env('PORTAL_SENDER_NAME', env('APP_NAME', 'Dokumentenportal')),
 
+    // Impressum (§ 5 DDG) und Datenschutzerklärung (Art. 13 DSGVO), im Fuß jeder Seite verlinkt.
+    'imprint_url' => env('PORTAL_IMPRINT_URL'),
+    'privacy_url' => env('PORTAL_PRIVACY_URL'),
+
     // Zeitzone, in der Fristen auf den Abrufseiten angezeigt werden.
     'display_timezone' => env('PORTAL_DISPLAY_TIMEZONE', 'Europe/Berlin'),
 
