@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Account;
 use App\Models\ApiClient;
 use App\Models\Shipment;
 use Illuminate\Http\Request;
@@ -34,6 +35,10 @@ abstract class ApiController extends Controller
     {
         $shipment->loadMissing(['files', 'recipients.downloads']);
 
+        $accounts = config('portal.accounts.enabled')
+            ? Account::whereIn('email', $shipment->recipients->pluck('email'))->pluck('email')->all()
+            : [];
+
         return [
             'id' => $shipment->uuid,
             'status' => $shipment->status,
@@ -52,7 +57,7 @@ abstract class ApiController extends Controller
                 'sha256' => $file->sha256,
                 'purged' => $file->isPurged(),
             ])->all(),
-            'recipients' => $shipment->recipients->map(function ($recipient) use ($secrets) {
+            'recipients' => $shipment->recipients->map(function ($recipient) use ($secrets, $accounts) {
                 $data = [
                     'id' => $recipient->uuid,
                     'email' => $recipient->email,
@@ -63,6 +68,7 @@ abstract class ApiController extends Controller
                     'locked' => $recipient->isLocked(),
                     'failed_attempts' => $recipient->failed_attempts,
                     'downloads' => (int) $recipient->downloads->sum('download_count'),
+                    'has_account' => in_array($recipient->email, $accounts, true),
                 ];
 
                 if (isset($secrets[$recipient->uuid])) {

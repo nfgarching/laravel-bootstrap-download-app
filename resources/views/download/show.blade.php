@@ -53,4 +53,21 @@
     @if (count($files) > 0)
         <p class="small text-body-secondary mt-3 mb-0">{{ __('portal.download_hint') }}</p>
     @endif
+    @if ($offerAccount ?? false)
+        <div class="border-top mt-4 pt-3">
+            <h2 class="h6 mb-2"><i class="bi bi-person-lock me-1" aria-hidden="true"></i> {{ __('Sicheren Zugang einrichten') }}</h2>
+            <p class="small text-body-secondary mb-2">
+                {{ __('Mit einem eigenen Zugang sehen Sie künftige Dokumente nach der Anmeldung – ohne Link und Passwort. Die Anmeldung erfolgt mit einem Passkey (Fingerabdruck, Gesichtserkennung oder Geräte-PIN) oder mit Passwort und Authenticator-App.') }}
+            </p>
+            <form method="POST" action="{{ route('download.account', ['token' => $token]) }}">
+                @csrf
+                <button type="submit" class="btn btn-outline-primary btn-sm">{{ __('Zugang einrichten') }}</button>
+            </form>
+        </div>
+    @elseif ($hasAccount ?? false)
+        <p class="small text-body-secondary border-top mt-4 pt-3 mb-0">
+            <i class="bi bi-person-check me-1" aria-hidden="true"></i>
+            {{ __('Für Ihre Adresse besteht ein Zugang.') }} <a href="{{ route('account.login') }}">{{ __('Anmelden') }}</a>
+        </p>
+    @endif
 @endsection

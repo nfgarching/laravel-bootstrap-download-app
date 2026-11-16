@@ -12,10 +12,14 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "ext-openssl": "*",
         "ext-pdo_sqlite": "*",
         "ext-sodium": "*",
+        "ext-xmlwriter": "*",
+        "bacon/bacon-qr-code": "^3.0",
         "laravel/framework": "^13.17",
         "laravel/tinker": "^3.0",
+        "lbuchs/webauthn": "^2.2",
         "maennchen/zipstream-php": "^3.1"
     },
     "require-dev": {

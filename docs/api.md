@@ -73,7 +73,7 @@ Signaturschlüssel `sk_test`, Zeitstempel `1794268800`.
 - Pflicht sind `subject` und mindestens ein Empfänger mit `email`.
 - `expires_at` fehlt: 14 Tage. Höchstens 90 Tage in der Zukunft.
 - `max_downloads` gilt je Empfänger und je Datei. Fehlt es: 5.
-- `require_login` wird gespeichert, wirkt aber erst mit den Empfängerkonten (Phase 3).
+- `require_login`: Besteht für die Adresse ein Empfängerkonto, ist der Abruf nur nach Anmeldung möglich; ohne Konto gilt weiter der Link (gegebenenfalls mit Passwort).
 - Optionale Kopfzeile `Idempotency-Key`: Derselbe Schlüssel liefert dieselbe Sendung
   zurück (`200`) statt eine zweite anzulegen.
 
@@ -129,7 +129,9 @@ Links werden sofort ungültig, Dateien und Schlüssel gelöscht.
 
 Ereignisarten: `shipment.created`, `file.added`, `shipment.released`, `shipment.updated`,
 `shipment.revoked`, `shipment.expired`, `link.opened`, `password.ok`, `password.failed`,
-`link.locked`, `file.downloaded`, `download.limit_reached`.
+`link.locked`, `file.downloaded`, `download.limit_reached`, `account.notified` (Kontoinhaber per E-Mail auf die Sendung hingewiesen).
+
+Abrufe aus dem Empfängerkonto tragen in `meta` den Eintrag `"via": "account"`.
 
 IP-Adressen sind gekürzt (IPv4 ohne letztes Oktett, IPv6 auf /48). Zeiten sind UTC.
 
@@ -152,8 +154,12 @@ IP-Adressen sind gekürzt (IPv4 ohne letztes Oktett, IPv6 auf /48). Zeiten sind 
     ],
     "recipients": [
       { "id": "…", "email": "mandant@example.com", "name": "Erika Muster", "password_protected": true,
-        "require_login": false, "opened_at": null, "locked": false, "failed_attempts": 0, "downloads": 0 }
+        "require_login": false, "opened_at": null, "locked": false, "failed_attempts": 0, "downloads": 0,
+        "has_account": false }
     ]
   }
 }
 ```
+
+`has_account`: Für die Adresse besteht ein Empfängerkonto. Die interne Anwendung kann dann
+auf die E-Mail mit dem Link verzichten; das Portal hat den Empfänger bereits hingewiesen.

@@ -2,23 +2,17 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\FileDownload;
-use App\Models\ShipmentFile;
+use App\Http\Controllers\Account\SetupController;
+use App\Models\Account;
 use App\Models\ShipmentRecipient;
+use App\Services\DownloadService;
 use App\Services\EventLogger;
-use App\Services\Vault;
-use App\Support\ChunkStream;
 use App\Support\Secrets;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
-use OverflowException;
 use Symfony\Component\HttpFoundation\Response;
-use Throwable;
-use ZipStream\CompressionMethod;
-use ZipStream\ZipStream;
 
 /**
  * Abruf einer Sendung über den persönlichen Link.
@@ -29,7 +23,7 @@ use ZipStream\ZipStream;
 class DownloadController extends Controller
 {
     public function __construct(
-        private readonly Vault $vault,
+        private readonly DownloadService $downloads,
         private readonly EventLogger $events,
     ) {}
 
@@ -43,11 +37,28 @@ class DownloadController extends Controller
 
         $shipment = $recipient->shipment;
 
+        // Angemeldet mit dem Konto dieser Adresse: direkt in den Kontobereich
+        $account = Auth::user();
+
+        if ($account instanceof Account && $account->email === $recipient->email) {
+            return redirect()->route('account.shipment', ['recipient' => $recipient->uuid]);
+        }
+
         if ($recipient->first_opened_at === null) {
             $recipient->forceFill(['first_opened_at' => now()])->save();
         }
 
         $this->events->log(EventLogger::LINK_OPENED, $shipment, $recipient, ip: $request->ip());
+
+        $hasAccount = $this->accountFor($recipient) !== null;
+
+        if ($recipient->require_login && $hasAccount) {
+            $request->session()->put('url.intended', route('account.shipment', ['recipient' => $recipient->uuid]));
+
+            return response()->view('download.login-required', [
+                'sender' => config('portal.sender_name'),
+            ]);
+        }
 
         // Vor der Passworteingabe wird nur der Absender gezeigt, weder Betreff
         // noch Dateinamen: Beides kann schon vertraulich sein.
@@ -58,20 +69,13 @@ class DownloadController extends Controller
             ]);
         }
 
-        $counts = $recipient->downloads()->pluck('download_count', 'shipment_file_id');
-
-        $files = $shipment->files()->whereNull('purged_at')->orderBy('id')->get()->map(fn ($file) => [
-            'id' => $file->uuid,
-            'name' => $file->name,
-            'size' => $file->size,
-            'remaining' => max(0, $shipment->max_downloads - (int) ($counts[$file->id] ?? 0)),
-        ]);
-
         return response()->view('download.show', [
             'token' => $token,
             'sender' => config('portal.sender_name'),
             'shipment' => $shipment,
-            'files' => $files,
+            'files' => $this->downloads->files($recipient),
+            'offerAccount' => config('portal.accounts.enabled') && ! $hasAccount,
+            'hasAccount' => $hasAccount,
         ]);
     }
 
@@ -140,72 +144,16 @@ class DownloadController extends Controller
             return $this->unavailable();
         }
 
-        if (! $this->isUnlocked($request, $recipient)) {
+        if (! $this->isUnlocked($request, $recipient) || $this->loginRequired($recipient)) {
             return redirect()->route('download.show', ['token' => $token]);
         }
 
-        $shipment = $recipient->shipment;
-
-        $shipmentFile = $shipment->files()->where('uuid', $file)->whereNull('purged_at')->first();
-
-        if ($shipmentFile === null || $shipmentFile->isPurged() || ! $this->vault->exists($shipmentFile->path)) {
-            return $this->unavailable();
-        }
-
-        try {
-            $fileKey = $this->vault->unwrapKey($shipmentFile->wrapped_key);
-        } catch (Throwable $exception) {
-            report($exception);
-
-            return $this->unavailable();
-        }
-
-        $download = FileDownload::firstOrCreate([
-            'shipment_recipient_id' => $recipient->id,
-            'shipment_file_id' => $shipmentFile->id,
-        ]);
-
-        // Zählen und Limit prüfen in einem Schritt, damit gleichzeitige
-        // Anfragen das Limit nicht überschreiten.
-        $counted = FileDownload::query()
-            ->whereKey($download->id)
-            ->where('download_count', '<', $shipment->max_downloads)
-            ->increment('download_count', 1, ['last_downloaded_at' => now()]);
-
-        if ($counted === 0) {
-            $this->events->log(EventLogger::DOWNLOAD_LIMIT_REACHED, $shipment, $recipient, $shipmentFile, ip: $request->ip());
-
-            return redirect()->route('download.show', ['token' => $token])
-                ->with('portal_error', __('portal.limit_reached'));
-        }
-
-        $this->events->log(EventLogger::FILE_DOWNLOADED, $shipment, $recipient, $shipmentFile, ip: $request->ip());
-
-        $vault = $this->vault;
-        $path = $shipmentFile->path;
-
-        return response()->streamDownload(
-            function () use ($vault, $path, $fileKey) {
-                $vault->decryptStream($path, $fileKey, function (string $chunk) {
-                    echo $chunk;
-                    flush();
-                });
-            },
-            $shipmentFile->name,
-            [
-                'Content-Type' => 'application/octet-stream',
-                'Content-Length' => (string) $shipmentFile->size,
-                'X-Content-Type-Options' => 'nosniff',
-                'Cache-Control' => 'no-store, private',
-            ],
-        );
+        return $this->downloads->file($request, $recipient, $file, route('download.show', ['token' => $token]))
+            ?? $this->unavailable();
     }
 
     /**
-     * Alle Dateien der Sendung als ZIP. Die Dateien werden direkt aus dem Vault
-     * entschlüsselt und unkomprimiert in das ZIP gestreamt; Klartext landet
-     * dabei nie auf der Platte. Zählt als ein Abruf je enthaltener Datei und
-     * gelingt nur, wenn bei allen Dateien noch ein Abruf möglich ist.
+     * Alle Dateien der Sendung als ZIP (siehe DownloadService::zip).
      */
     public function downloadZip(Request $request, string $token): Response
     {
@@ -215,132 +163,49 @@ class DownloadController extends Controller
             return $this->unavailable();
         }
 
+        if (! $this->isUnlocked($request, $recipient) || $this->loginRequired($recipient)) {
+            return redirect()->route('download.show', ['token' => $token]);
+        }
+
+        return $this->downloads->zip($request, $recipient, route('download.show', ['token' => $token]))
+            ?? $this->unavailable();
+    }
+
+    /**
+     * „Sicheren Zugang einrichten“ von der Abrufseite: nur mit gültigem und
+     * (falls geschützt) entsperrtem Link. Die Adresse des Kontos ist die
+     * Empfängeradresse dieser Sendung; sie wird anschließend per Code bestätigt.
+     */
+    public function startAccount(Request $request, string $token, SetupController $setup): Response
+    {
+        $recipient = $this->resolve($token);
+
+        if ($recipient === null || ! config('portal.accounts.enabled')) {
+            return $this->unavailable();
+        }
+
         if (! $this->isUnlocked($request, $recipient)) {
             return redirect()->route('download.show', ['token' => $token]);
         }
 
-        $shipment = $recipient->shipment;
-
-        $files = $shipment->files()->whereNull('purged_at')->orderBy('id')->get()
-            ->filter(fn (ShipmentFile $file) => $this->vault->exists($file->path))
-            ->values();
-
-        if ($files->isEmpty()) {
-            return $this->unavailable();
-        }
-
-        try {
-            $keys = $files->mapWithKeys(fn (ShipmentFile $file) => [$file->id => $this->vault->unwrapKey($file->wrapped_key)]);
-        } catch (Throwable $exception) {
-            report($exception);
-
-            return $this->unavailable();
-        }
-
-        // Alle Zähler in einer Transaktion: entweder für jede Datei ein Abruf oder für keine.
-        try {
-            DB::transaction(function () use ($files, $recipient, $shipment) {
-                foreach ($files as $file) {
-                    $download = FileDownload::firstOrCreate([
-                        'shipment_recipient_id' => $recipient->id,
-                        'shipment_file_id' => $file->id,
-                    ]);
-
-                    $counted = FileDownload::query()
-                        ->whereKey($download->id)
-                        ->where('download_count', '<', $shipment->max_downloads)
-                        ->increment('download_count', 1, ['last_downloaded_at' => now()]);
-
-                    if ($counted === 0) {
-                        throw new OverflowException;
-                    }
-                }
-            });
-        } catch (OverflowException) {
-            $this->events->log(EventLogger::DOWNLOAD_LIMIT_REACHED, $shipment, $recipient, meta: ['zip' => true], ip: $request->ip());
-
-            return redirect()->route('download.show', ['token' => $token])
-                ->with('portal_error', __('portal.limit_reached_zip'));
-        }
-
-        foreach ($files as $file) {
-            $this->events->log(EventLogger::FILE_DOWNLOADED, $shipment, $recipient, $file, meta: ['zip' => true], ip: $request->ip());
-        }
-
-        $vault = $this->vault;
-        $names = $this->uniqueNames($files);
-
-        // ZIP64 nur, wenn das Archiv die 4-GB-Grenze erreichen kann: Ältere
-        // Entpacker (z. B. Info-ZIP ohne ZIP64) lehnen sonst jedes Archiv ab.
-        $zip64 = $files->sum('size') + $files->count() * 1024 >= 0xFFFFFFFF;
-
-        return response()->streamDownload(
-            function () use ($vault, $files, $keys, $names, $zip64) {
-                $zip = new ZipStream(
-                    outputStream: fopen('php://output', 'wb'),
-                    defaultCompressionMethod: CompressionMethod::STORE,
-                    enableZip64: $zip64,
-                    sendHttpHeaders: false,
-                    flushOutput: true,
-                );
-
-                foreach ($files as $index => $file) {
-                    $zip->addFileFromPsr7Stream(
-                        fileName: $names[$index],
-                        stream: new ChunkStream($vault->decryptChunks($file->path, $keys[$file->id]), $file->size),
-                        lastModificationDateTime: $file->created_at,
-                        exactSize: $file->size,
-                    );
-                }
-
-                $zip->finish();
-            },
-            $this->zipName($shipment->subject),
-            [
-                'Content-Type' => 'application/zip',
-                'X-Content-Type-Options' => 'nosniff',
-                'Cache-Control' => 'no-store, private',
-            ],
-        );
+        return $setup->begin($request, $recipient->email, $recipient->name);
     }
 
     /**
-     * Gleichnamige Dateien bekommen im ZIP einen Zähler: "Brief.pdf", "Brief (2).pdf".
-     *
-     * @param  Collection<int, ShipmentFile>  $files
-     * @return list<string>
+     * Die Kanzlei kann je Empfänger verlangen, dass nur nach Anmeldung abgerufen
+     * wird. Das greift erst, wenn für die Adresse ein Konto besteht – sonst
+     * bleibt der Link (mit Passwort) der einzige Weg.
      */
-    private function uniqueNames(Collection $files): array
+    private function loginRequired(ShipmentRecipient $recipient): bool
     {
-        $seen = [];
-        $names = [];
-
-        foreach ($files as $file) {
-            $name = $file->name;
-            $key = mb_strtolower($name);
-            $number = 1;
-
-            while (isset($seen[$key])) {
-                $number++;
-                $info = pathinfo($file->name);
-                $extension = isset($info['extension']) ? '.'.$info['extension'] : '';
-                $name = $info['filename']." ({$number})".$extension;
-                $key = mb_strtolower($name);
-            }
-
-            $seen[$key] = true;
-            $names[] = $name;
-        }
-
-        return $names;
+        return $recipient->require_login && $this->accountFor($recipient) !== null;
     }
 
-    private function zipName(string $subject): string
+    private function accountFor(ShipmentRecipient $recipient): ?Account
     {
-        $name = trim((string) preg_replace('/[^\pL\pN ._-]+/u', '', $subject));
-        $name = mb_substr($name, 0, 80);
-
-        return ($name === '' ? 'Dokumente' : $name).'.zip';
+        return config('portal.accounts.enabled')
+            ? Account::where('email', $recipient->email)->first()
+            : null;
     }
 
     private function resolve(string $token): ?ShipmentRecipient

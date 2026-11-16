@@ -37,6 +37,8 @@ class EventLogger
 
     public const DOWNLOAD_LIMIT_REACHED = 'download.limit_reached';
 
+    public const ACCOUNT_NOTIFIED = 'account.notified';
+
     /**
      * @param  array<string, mixed>  $meta
      */

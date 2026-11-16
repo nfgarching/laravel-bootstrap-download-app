@@ -8,9 +8,10 @@ Das Portal ist eine eigenständige Laravel-Anwendung für einen öffentlichen Se
 Es hat keinen Zugriff auf die interne Anwendung; alle Verbindungen gehen von innen
 nach außen.
 
-> **Stand: Phase 2, Portalseite.** Läuft im Testbetrieb (Laravel 13, PHP 8.4),
-> alle Tests grün. Das Client-Package für die interne Anwendung
-> (`laravel-bootstrap-share`) fehlt noch.
+> **Stand: Phase 3 (Empfängerkonten), noch ungetestet.** Phase 1 und 2 laufen im
+> Testbetrieb. Der Code für die Empfängerkonten ist geschrieben, aber noch nicht in
+> einer Laravel-Installation gelaufen; geprüft sind Syntax und die TOTP-Berechnung
+> gegen die Testvektoren aus RFC 6238. Vor dem Einsatz `php artisan test` ausführen.
 
 ## Was das Portal kann
 
@@ -22,15 +23,19 @@ nach außen.
 - Layout mit Bootstrap 5.3 und Bootstrap Icons, lokal ausgeliefert (`public/vendor/`, aktualisieren mit `scripts/update-assets.sh`), hell/dunkel nach Systemeinstellung
 - Links auf Impressum und Datenschutz im Fuß jeder Seite (`PORTAL_IMPRINT_URL`, `PORTAL_PRIVACY_URL`)
 - Stündlicher Löschlauf für abgelaufene Sendungen
+- **Empfängerkonten:** Einrichtung aus einem gültigen Link heraus, Bestätigung der Adresse per Code, Anmeldung mit Passkey oder Passwort plus Authenticator-App, Wiederherstellungscodes; im Konto alle gültigen Sendungen an die eigene Adresse
+- Hinweis-E-Mail (ohne Link auf Dokumente) an Kontoinhaber bei neuen Sendungen; Sicherheitshinweise bei Änderungen am Zugang
+- „Nur nach Anmeldung“ je Empfänger (`require_login`), sobald für die Adresse ein Konto besteht
 - Docker-Setup hinter Traefik
 
-Noch nicht enthalten: Empfängerkonten, Rückkanal (Upload), E-Mail-Versand durch das Portal.
+Noch nicht enthalten: Rückkanal (Upload, Phase 4).
 
 Zum Layout: `laravel-bootstrap-core` ist bewusst noch nicht eingebunden. Es bringt
 Livewire, Anmeldung und Registrierung mit und lädt Bootstrap vom CDN; das passt nicht
 zur strikten CSP ohne Fremdinhalte und vergrößert die Angriffsfläche einer Seite ohne
 Login. Die Optik entspricht den übrigen Anwendungen (Bootstrap 5.3, Petrol `#115e59`).
-Über die Einbindung wird mit den Empfängerkonten (Phase 3) neu entschieden.
+Auch die Empfängerkonten kommen ohne Core aus: eigene Blade-Seiten, kein Livewire,
+Passkey-Skript als lokale Datei (`public/js/passkey.js`).
 
 ZIP-Archive verwenden ZIP64 nur, wenn sie die 4-GB-Grenze erreichen können; so
 lassen sie sich auch mit älteren Entpackern öffnen.
@@ -124,7 +129,58 @@ php artisan serve
 | `php artisan portal:key` | Hauptschlüssel erzeugen |
 | `php artisan portal:client:create "Name"` | API-Client anlegen; mit `--ability=` auf einzelne Fähigkeiten beschränken |
 | `php artisan portal:client:revoke` | API-Clients auflisten; mit Nummer: sperren |
-| `php artisan portal:prune` | Löschlauf (läuft stündlich über den Scheduler) |
+| `php artisan portal:prune` | Löschlauf (läuft stündlich über den Scheduler); schreibt auch inaktive Zugänge an und löscht sie nach der Frist |
+| `php artisan portal:account:list` | Empfängerzugänge auflisten (optional mit Suchbegriff) |
+| `php artisan portal:account:reset mail@example.com` | Zugang zurücksetzen (löschen), wenn Passkey und Codes verloren sind – vorher die Person telefonisch identifizieren |
+
+## Empfängerkonten
+
+### Einrichten (Betreiber)
+
+1. **Pakete installieren.** Phase 3 bringt zwei neue Abhängigkeiten
+   (`lbuchs/webauthn` für Passkeys, `bacon/bacon-qr-code` für den QR-Code).
+   Die `composer.lock` muss deshalb einmal aktualisiert und ins Repo übernommen werden:
+
+   ```bash
+   docker run --rm -v "$PWD":/app -w /app composer:2 \
+       composer update lbuchs/webauthn bacon/bacon-qr-code --ignore-platform-reqs --no-scripts
+   git add composer.lock && git commit -m "Abhängigkeiten für Empfängerkonten" && git push
+   ```
+
+2. **E-Mail-Versand** in der `.env` einrichten (`MAIL_*`, siehe `.env.example`).
+   Das Portal verschickt Bestätigungscodes, Hinweise auf neue Dokumente und
+   Sicherheitshinweise. Mit Google Workspace: eigenes Postfach oder Alias, z. B.
+   `portal@…`, und ein App-Passwort.
+
+3. **Neu bauen und starten.** Die Migration läuft beim Start des App-Containers.
+
+   ```bash
+   docker compose build && docker compose up -d
+   ```
+
+4. **Prüfen:** einen Link öffnen, unten „Zugang einrichten“ wählen, Code aus der
+   E-Mail eingeben, Passkey oder Passwort + App einrichten.
+
+Passkeys sind an den Hostnamen gebunden (`PORTAL_WEBAUTHN_RP_ID`, Standard: Host aus
+`PORTAL_PUBLIC_URL`). Beim Umzug vom NAS auf den vServer muss der Hostname gleich
+bleiben (`download.froehler-kollegen.de`), sonst müssen alle Empfänger ihre Passkeys
+neu einrichten.
+
+### Ablauf für Empfänger
+
+1. Dokumente wie bisher über den Link abrufen (gegebenenfalls mit Passwort).
+2. Unten auf der Seite „Zugang einrichten“ wählen. Das Portal schickt einen
+   sechsstelligen Code an die Empfängeradresse.
+3. Code eingeben, dann **Passkey** (Fingerabdruck, Gesichtserkennung, Geräte-PIN)
+   oder **Passwort plus Authenticator-App** einrichten.
+4. Die acht Wiederherstellungscodes ausdrucken oder notieren.
+5. Künftig unter `/konto/anmelden` anmelden. Das Konto zeigt alle noch gültigen
+   Sendungen an die eigene Adresse. Bei neuen Sendungen kommt eine E-Mail ohne Link.
+
+Eine freie Registrierung gibt es nicht. Ein Zurücksetzen per E-Mail ebenfalls nicht:
+Es wäre nicht sicherer als die E-Mail selbst. Sind Passkey und Codes verloren,
+setzt die Kanzlei den Zugang mit `portal:account:reset` zurück; über den nächsten
+Link richtet die Person ihn neu ein.
 
 ## Sicherheit in Kürze
 

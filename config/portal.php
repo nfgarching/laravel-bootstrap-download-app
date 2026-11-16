@@ -101,4 +101,41 @@ return [
 
     'signature_tolerance' => (int) env('PORTAL_SIGNATURE_TOLERANCE', 300),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Empfängerkonten
+    |--------------------------------------------------------------------------
+    |
+    | Ein Konto entsteht nur aus einem gültigen Link heraus (keine freie
+    | Registrierung). Bestätigung der Adresse per Code, danach Passkey oder
+    | Passwort plus Authenticator-App. Das Portal verschickt dafür E-Mails
+    | (MAIL_* in der .env).
+    |
+    */
+
+    'accounts' => [
+        'enabled' => (bool) env('PORTAL_ACCOUNTS', true),
+        'code_ttl_minutes' => 15,
+        'code_attempts' => 5,
+        'login_attempts' => 5,          // je E-Mail-Adresse und IP in 15 Minuten
+        'password_min_length' => 12,
+        'inactive_months' => (int) env('PORTAL_ACCOUNT_INACTIVE_MONTHS', 24),
+        'inactive_notice_days' => 28,   // Hinweis vor dem Löschen
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Passkeys (WebAuthn)
+    |--------------------------------------------------------------------------
+    |
+    | rp_id ist der Hostname, an den die Passkeys gebunden sind. Wird er später
+    | geändert, funktionieren bestehende Passkeys nicht mehr.
+    |
+    */
+
+    'webauthn' => [
+        'rp_id' => env('PORTAL_WEBAUTHN_RP_ID', parse_url((string) env('PORTAL_PUBLIC_URL', env('APP_URL', '')), PHP_URL_HOST) ?: ''),
+        'rp_name' => env('PORTAL_SENDER_NAME', env('APP_NAME', 'Dokumentenportal')),
+    ],
+
 ];

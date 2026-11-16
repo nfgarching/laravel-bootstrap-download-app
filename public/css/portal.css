@@ -104,3 +104,21 @@ body {
 .min-w-0 {
     min-width: 0;
 }
+
+/* QR-Code für die Authenticator-App: immer schwarz auf weiß, auch im dunklen Modus */
+.portal-qr svg {
+    width: 12rem;
+    height: 12rem;
+    background: #fff;
+    padding: .5rem;
+    border-radius: .5rem;
+}
+
+.card-header .nav-link {
+    color: var(--bs-secondary-color);
+}
+
+.card-header .nav-link.active {
+    color: var(--portal-accent);
+    border-bottom-color: var(--portal-accent);
+}

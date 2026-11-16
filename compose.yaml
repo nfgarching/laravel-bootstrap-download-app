@@ -29,7 +29,9 @@ services:
       - traefik.http.routers.download-portal.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}
       - traefik.http.services.download-portal.loadbalancer.server.port=8080
 
-  # Stündlicher Löschlauf (php artisan portal:prune).
+  # Stündlicher Löschlauf (php artisan portal:prune). Braucht seit den
+  # Empfängerkonten ausgehende Verbindungen (SMTP für Hinweise vor dem Löschen
+  # inaktiver Zugänge); er hängt im Standardnetz des Projekts, nicht an Traefik.
   scheduler:
     image: laravel-bootstrap-download-app:latest
     restart: unless-stopped
@@ -40,7 +42,6 @@ services:
     volumes:
       - storage:/app/storage
       - database:/app/database/data
-    network_mode: none
     depends_on:
       app:
         condition: service_healthy

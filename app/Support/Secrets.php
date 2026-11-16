@@ -40,6 +40,29 @@ class Secrets
     }
 
     /**
+     * Wiederherstellungscode in der Form XXXXX-XXXXX (rund 49 Bit).
+     */
+    public static function recoveryCode(): string
+    {
+        $max = strlen(self::PASSWORD_ALPHABET) - 1;
+        $code = '';
+
+        for ($i = 0; $i < 10; $i++) {
+            $code .= self::PASSWORD_ALPHABET[random_int(0, $max)];
+        }
+
+        return substr($code, 0, 5).'-'.substr($code, 5);
+    }
+
+    /**
+     * Sechsstelliger Bestätigungscode für E-Mails.
+     */
+    public static function emailCode(): string
+    {
+        return str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+    }
+
+    /**
      * Vereinheitlicht die Eingabe: Groß-/Kleinschreibung, Leerzeichen und
      * Bindestriche spielen beim Eintippen keine Rolle.
      */

@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Models\Account;
 use App\Models\Shipment;
 use App\Models\ShipmentRecipient;
+use App\Services\AccountMailer;
 use App\Services\EventLogger;
 use App\Services\ShipmentPurger;
 use App\Support\Secrets;
@@ -12,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Throwable;
 
 class ShipmentController extends ApiController
 {
@@ -195,7 +198,35 @@ class ShipmentController extends ApiController
             return $secrets;
         });
 
+        $this->notifyAccounts($shipment);
+
         return response()->json(['data' => $this->present($shipment->fresh(), $secrets)]);
+    }
+
+    /**
+     * Empfänger mit Konto erhalten einen Hinweis ohne Link auf die Dokumente.
+     * Ein Fehler beim Versand bricht die Freigabe nicht ab.
+     */
+    private function notifyAccounts(Shipment $shipment): void
+    {
+        if (! config('portal.accounts.enabled')) {
+            return;
+        }
+
+        foreach ($shipment->recipients()->get() as $recipient) {
+            $account = Account::where('email', $recipient->email)->where('notify_new_shipments', true)->first();
+
+            if ($account === null) {
+                continue;
+            }
+
+            try {
+                app(AccountMailer::class)->newShipment($account);
+                $this->events->log(EventLogger::ACCOUNT_NOTIFIED, $shipment, $recipient);
+            } catch (Throwable $e) {
+                report($e);
+            }
+        }
     }
 
     /**

@@ -28,6 +28,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->web(append: [
             SecurityHeaders::class,
         ]);
+
+        // Empfängerkonten: Anmeldeseite und Ziel nach der Anmeldung
+        $middleware->redirectGuestsTo(fn () => route('account.login'));
+        $middleware->redirectUsersTo(fn () => route('account.index'));
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
