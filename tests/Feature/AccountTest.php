@@ -207,7 +207,7 @@ class AccountTest extends TestCase
     {
         $id = $this->api('POST', '/api/v1/shipments', [
             'subject' => $name,
-            'recipients' => [array_merge(['email' => $email, 'password' => true], $recipient)],
+            'recipients' => [array_merge(['email' => $email, 'password' => false], $recipient)],
         ])->assertCreated()->json('data.id');
 
         $uri = "/api/v1/shipments/{$id}/files";
