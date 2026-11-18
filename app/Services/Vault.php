@@ -244,7 +244,7 @@ class Vault
         @rmdir($directory);
     }
 
-    private function absolutePath(string $relativePath): string
+    public function absolutePath(string $relativePath): string
     {
         if ($relativePath === '' || str_contains($relativePath, '..') || str_starts_with($relativePath, '/')) {
             throw new RuntimeException('Ungültiger Speicherpfad.');

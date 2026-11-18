@@ -163,3 +163,79 @@ IP-Adressen sind gekürzt (IPv4 ohne letztes Oktett, IPv6 auf /48). Zeiten sind 
 
 `has_account`: Für die Adresse besteht ein Empfängerkonto. Die interne Anwendung kann dann
 auf die E-Mail mit dem Link verzichten; das Portal hat den Empfänger bereits hingewiesen.
+
+## Rückkanal: Uploads an die Kanzlei
+
+Eingehende Dateien werden im Portal mit einem eigenen Schlüssel je Datei verschlüsselt
+(Format wie im Vault: 24 Byte secretstream-Header, dann Blöcke zu 65 536 Byte + 17 Byte).
+Der Dateischlüssel wird mit dem öffentlichen Schlüssel des API-Clients versiegelt
+(`sodium_crypto_box_seal`) und steht nur so in `sealed_key`. Das Portal kann
+eingegangene Dateien danach nicht mehr lesen.
+
+Fähigkeiten: `uploads:write` (Schlüssel, Anforderungen, Quittung), `uploads:read`
+(Liste, Inhalt). Bestehende Clients mit allen bisherigen Fähigkeiten erhalten beide
+mit der Migration automatisch.
+
+### `PUT /client/upload-key`
+
+```json
+{ "public_key": "<X25519, 32 Byte, Base64>" }
+```
+
+Antwort: `{ "data": { "fingerprint": "…" } }`. Ohne hinterlegten Schlüssel lehnt
+`POST /upload-requests` mit `409` ab, und Upload-Links sind nicht erreichbar.
+
+### `POST /upload-requests` – Unterlagen anfordern
+
+```json
+{
+  "reference": "26/0001",
+  "subject": "Lohnabrechnungen 2025",
+  "message": "Bitte alle zwölf Monate.",
+  "email": "mandant@example.com",
+  "name": "Erika Muster",
+  "password": true,
+  "expires_at": "2026-12-03T23:59:59+01:00",
+  "max_files": 10
+}
+```
+
+Antwort `201` mit `id`, `status`, … sowie `url` (`/u/…`) und `password` – nur in dieser
+Antwort. Fehlt `expires_at`: 14 Tage. `max_files` höchstens 20.
+
+### `GET /upload-requests/{id}`, `DELETE /upload-requests/{id}`
+
+Status (`open`, `closed`, `locked`, `expired`), Zahl der Uploads, erstes Öffnen.
+`DELETE` schließt die Anforderung; der Link wird ungültig.
+
+### `GET /uploads?limit=50` – eingegangene, noch nicht abgeholte Dateien
+
+```json
+{ "data": [ {
+  "id": "…", "status": "received", "request_id": "…", "reference": "26/0001",
+  "batch": "…", "via": "link", "sender_email": "mandant@example.com", "sender_name": "Erika Muster",
+  "subject": "Lohnabrechnungen 2025", "message": "Rest folgt",
+  "name": "Januar.pdf", "mime_type": "application/pdf", "size": 48213, "sha256": "…",
+  "sealed_key": "<Base64>", "created_at": "…", "fetched_at": null
+} ] }
+```
+
+`request_id` ist `null` bei Uploads aus dem Empfängerkonto ohne Anforderung (`via: account`);
+dann steht der vom Absender gewählte Betreff in `subject`. Dateien eines Vorgangs haben
+dieselbe `batch`.
+
+### `GET /uploads/{id}/content`
+
+Der verschlüsselte Inhalt. Entschlüsseln: `sodium_crypto_box_seal_open(sealed_key, keypair)`
+liefert den Dateischlüssel, damit secretstream blockweise öffnen; danach SHA-256 mit `sha256`
+vergleichen. `410`, wenn die Datei schon abgeholt oder verfallen ist.
+
+### `POST /uploads/{id}/ack`
+
+Empfang quittieren: Datei und versiegelter Schlüssel werden im Portal gelöscht.
+Nicht abgeholte Uploads löscht das Portal nach 30 Tagen (`upload.expired`).
+
+Ereignisse im Protokoll (ohne Sendungsbezug, Angaben in `meta`): `upload_request.created`,
+`upload_request.opened`, `upload_request.closed`, `upload.received`, `upload.fetched`,
+`upload.expired`.
+

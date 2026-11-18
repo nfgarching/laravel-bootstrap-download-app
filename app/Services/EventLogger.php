@@ -39,6 +39,18 @@ class EventLogger
 
     public const ACCOUNT_NOTIFIED = 'account.notified';
 
+    public const UPLOAD_REQUEST_CREATED = 'upload_request.created';
+
+    public const UPLOAD_REQUEST_OPENED = 'upload_request.opened';
+
+    public const UPLOAD_REQUEST_CLOSED = 'upload_request.closed';
+
+    public const UPLOAD_RECEIVED = 'upload.received';
+
+    public const UPLOAD_FETCHED = 'upload.fetched';
+
+    public const UPLOAD_EXPIRED = 'upload.expired';
+
     /**
      * @param  array<string, mixed>  $meta
      */
@@ -56,6 +68,22 @@ class EventLogger
             'shipment_uuid' => $shipment->uuid,
             'recipient_uuid' => $recipient?->uuid,
             'file_uuid' => $file?->uuid,
+            'ip' => IpAnonymizer::anonymize($ip),
+            'meta' => $meta === [] ? null : $meta,
+        ]);
+    }
+
+    /**
+     * Protokoll für den Rückkanal. Diese Einträge gehören zu keiner Sendung;
+     * der Bezug steht in meta (request_id, upload_id, batch).
+     *
+     * @param  array<string, mixed>  $meta
+     */
+    public function logUpload(string $type, int $apiClientId, array $meta = [], ?string $ip = null): Event
+    {
+        return Event::create([
+            'api_client_id' => $apiClientId,
+            'type' => $type,
             'ip' => IpAnonymizer::anonymize($ip),
             'meta' => $meta === [] ? null : $meta,
         ]);

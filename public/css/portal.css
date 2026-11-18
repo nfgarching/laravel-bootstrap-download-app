@@ -122,3 +122,8 @@ body {
     color: var(--portal-accent);
     border-bottom-color: var(--portal-accent);
 }
+
+.portal-hash {
+    font-size: .75em;
+    overflow-wrap: anywhere;
+}

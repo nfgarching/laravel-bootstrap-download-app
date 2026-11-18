@@ -74,6 +74,37 @@ class AccountMailer
             TEXT);
     }
 
+    /**
+     * Eingangsbestätigung mit Dateinamen, Größe und SHA-256 (Nachweis des Eingangs).
+     *
+     * @param  iterable<\App\Models\Upload>  $uploads
+     */
+    public function uploadReceipt(string $email, iterable $uploads): void
+    {
+        $tz = config('portal.display_timezone', 'Europe/Berlin');
+        $lines = [];
+        $time = null;
+
+        foreach ($uploads as $upload) {
+            $time ??= $upload->created_at->timezone($tz)->format('d.m.Y H:i');
+            $lines[] = '- '.$upload->name.' ('.number_format($upload->size / 1024, 0, ',', '.')." KB)\n  SHA-256: ".$upload->sha256;
+        }
+
+        $list = implode("\n", $lines);
+
+        $this->send($email, 'Eingangsbestätigung Dokumentenportal', <<<TEXT
+            Guten Tag,
+
+            am {$time} Uhr sind im Dokumentenportal folgende Dateien von Ihnen eingegangen:
+
+            {$list}
+
+            Die Dateien werden verschlüsselt an uns weitergeleitet. Bitte beachten Sie:
+            Fristgebundene Erklärungen gelten erst mit Kenntnisnahme in der Kanzlei als
+            zugegangen. Bei Eiligem rufen Sie uns bitte zusätzlich an.
+            TEXT);
+    }
+
     private function send(string $email, string $subject, string $text): void
     {
         $sender = (string) config('portal.sender_name');

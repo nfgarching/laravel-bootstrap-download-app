@@ -9,6 +9,22 @@
 @section('content')
     <p class="small text-body-secondary">{{ __('Angemeldet als :email', ['email' => $account->email]) }}</p>
 
+    @if ($requests->isNotEmpty())
+        <h2 class="h6 text-body-secondary text-uppercase mb-2">{{ __('Angeforderte Unterlagen') }}</h2>
+        @foreach ($requests as $uploadRequest)
+            <a href="{{ route('account.request', ['uuid' => $uploadRequest->uuid]) }}"
+               class="d-flex align-items-center gap-3 py-3 border-top text-decoration-none text-reset">
+                <i class="bi bi-cloud-arrow-up portal-file-icon" aria-hidden="true"></i>
+                <div class="flex-grow-1 min-w-0">
+                    <div class="fw-semibold portal-file-name">{{ $uploadRequest->subject }}</div>
+                    <div class="small text-body-secondary">{{ __('bis :date', ['date' => $uploadRequest->expires_at->timezone(config('portal.display_timezone'))->format('d.m.Y')]) }}</div>
+                </div>
+                <i class="bi bi-chevron-right text-body-secondary" aria-hidden="true"></i>
+            </a>
+        @endforeach
+        <h2 class="h6 text-body-secondary text-uppercase mt-4 mb-2">{{ __('Dokumente') }}</h2>
+    @endif
+
     @forelse ($recipients as $recipient)
         @php($shipment = $recipient->shipment)
         <a href="{{ route('account.shipment', ['recipient' => $recipient->uuid]) }}"

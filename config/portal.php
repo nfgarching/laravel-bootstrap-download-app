@@ -138,4 +138,38 @@ return [
         'rp_name' => env('PORTAL_SENDER_NAME', env('APP_NAME', 'Dokumentenportal')),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Rückkanal: Uploads an die Kanzlei
+    |--------------------------------------------------------------------------
+    |
+    | Dateien werden beim Eingang mit dem öffentlichen Schlüssel der internen
+    | Anwendung versiegelt (portal:… / share:keygen). Das Portal kann sie danach
+    | nicht mehr lesen und liefert sie auch niemandem aus, nur der API zur Abholung.
+    |
+    */
+
+    'uploads' => [
+        'enabled' => (bool) env('PORTAL_UPLOADS', true),
+        'max_file_mb' => (int) env('PORTAL_UPLOAD_MAX_FILE_MB', 200),
+        'max_files_per_request' => 20,
+        'request_expires_days' => (int) env('PORTAL_UPLOAD_REQUEST_DAYS', 14),
+        // Uploads aus dem Konto ohne Anforderung: Tageslimit je Konto
+        'account_daily_mb' => (int) env('PORTAL_UPLOAD_ACCOUNT_DAILY_MB', 1024),
+        // Nicht abgeholte Uploads werden danach gelöscht
+        'keep_days' => (int) env('PORTAL_UPLOAD_KEEP_DAYS', 30),
+        // Erlaubte Dateiendungen (Positivliste)
+        'extensions' => [
+            'pdf', 'jpg', 'jpeg', 'png', 'gif', 'heic', 'heif', 'tif', 'tiff', 'webp',
+            'doc', 'docx', 'odt', 'rtf', 'txt', 'xls', 'xlsx', 'ods', 'csv',
+            'ppt', 'pptx', 'odp', 'eml', 'msg', 'zip', 'xml',
+        ],
+        // Inhaltstypen, die unabhängig von der Endung abgelehnt werden
+        'blocked_mime_types' => [
+            'application/x-dosexec', 'application/x-executable', 'application/x-sharedlib',
+            'application/x-msdownload', 'application/x-mach-binary', 'application/x-elf',
+            'application/java-archive', 'application/x-sh', 'text/x-shellscript',
+        ],
+    ],
+
 ];

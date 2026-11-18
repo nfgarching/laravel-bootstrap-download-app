@@ -4,6 +4,13 @@
             <i class="bi bi-inbox" aria-hidden="true"></i> {{ __('Dokumente') }}
         </a>
     </li>
+    @if (config('portal.uploads.enabled'))
+        <li class="nav-item">
+            <a class="nav-link {{ request()->routeIs('account.upload', 'account.request') ? 'active' : '' }}" href="{{ route('account.upload') }}">
+                <i class="bi bi-cloud-arrow-up" aria-hidden="true"></i> {{ __('Hochladen') }}
+            </a>
+        </li>
+    @endif
     <li class="nav-item">
         <a class="nav-link {{ request()->routeIs('account.security') ? 'active' : '' }}" href="{{ route('account.security') }}">
             <i class="bi bi-shield-lock" aria-hidden="true"></i> {{ __('Sicherheit') }}

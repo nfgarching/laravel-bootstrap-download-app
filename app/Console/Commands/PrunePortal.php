@@ -5,9 +5,12 @@ namespace App\Console\Commands;
 use App\Models\Account;
 use App\Models\Event;
 use App\Models\Shipment;
+use App\Models\Upload;
+use App\Models\UploadRequest;
 use App\Services\AccountMailer;
 use App\Services\EventLogger;
 use App\Services\ShipmentPurger;
+use App\Services\UploadService;
 use Illuminate\Console\Command;
 use Throwable;
 
@@ -17,7 +20,7 @@ class PrunePortal extends Command
 
     protected $description = 'Löscht abgelaufene Sendungen, liegengebliebene Entwürfe und alte Protokolleinträge';
 
-    public function handle(ShipmentPurger $purger, EventLogger $events, AccountMailer $mailer): int
+    public function handle(ShipmentPurger $purger, EventLogger $events, AccountMailer $mailer, UploadService $uploads): int
     {
         // 1. Freigegebene Sendungen, deren Frist abgelaufen ist: Dateien und Schlüssel löschen.
         $expired = 0;
@@ -57,10 +60,13 @@ class PrunePortal extends Command
 
         $oldEvents = Event::query()->where('created_at', '<=', $threshold)->delete();
 
-        // 4. Zugänge ohne Anmeldung: erst Hinweis per E-Mail, nach der Frist löschen.
+        // 4. Rückkanal: nicht abgeholte Uploads nach Frist löschen, alte Einträge entfernen
+        [$expiredUploads, $removedUploads] = $this->pruneUploads($uploads, $events);
+
+        // 5. Zugänge ohne Anmeldung: erst Hinweis per E-Mail, nach der Frist löschen.
         [$noticed, $deletedAccounts] = $this->pruneAccounts($mailer);
 
-        $this->info("Abgelaufen: {$expired}, Entwürfe gelöscht: {$drafts}, Sendungen entfernt: {$removed}, Protokolleinträge entfernt: {$oldEvents}, Zugänge angeschrieben: {$noticed}, Zugänge gelöscht: {$deletedAccounts}");
+        $this->info("Abgelaufen: {$expired}, Entwürfe gelöscht: {$drafts}, Sendungen entfernt: {$removed}, Protokolleinträge entfernt: {$oldEvents}, Zugänge angeschrieben: {$noticed}, Zugänge gelöscht: {$deletedAccounts}, Uploads verfallen: {$expiredUploads}, Uploads entfernt: {$removedUploads}");
 
         return self::SUCCESS;
     }
@@ -102,5 +108,38 @@ class PrunePortal extends Command
             ->delete();
 
         return [$noticed, $deleted];
+    }
+
+    /**
+     * @return array{0: int, 1: int} verfallen, entfernt
+     */
+    private function pruneUploads(UploadService $uploads, EventLogger $events): array
+    {
+        $expired = 0;
+
+        Upload::query()
+            ->where('status', Upload::STATUS_RECEIVED)
+            ->where('created_at', '<=', now()->subDays((int) config('portal.uploads.keep_days', 30)))
+            ->chunkById(100, function ($items) use ($uploads, $events, &$expired) {
+                foreach ($items as $upload) {
+                    $uploads->purge($upload, Upload::STATUS_EXPIRED);
+                    $events->logUpload(EventLogger::UPLOAD_EXPIRED, $upload->api_client_id, ['upload_id' => $upload->uuid]);
+                    $expired++;
+                }
+            });
+
+        $threshold = now()->subDays((int) config('portal.retention_days', 90));
+
+        $removed = Upload::query()
+            ->whereIn('status', [Upload::STATUS_FETCHED, Upload::STATUS_EXPIRED])
+            ->where('purged_at', '<=', $threshold)
+            ->delete();
+
+        UploadRequest::query()
+            ->where('expires_at', '<=', $threshold)
+            ->whereDoesntHave('uploads', fn ($q) => $q->where('status', Upload::STATUS_RECEIVED))
+            ->delete();
+
+        return [$expired, $removed];
     }
 }

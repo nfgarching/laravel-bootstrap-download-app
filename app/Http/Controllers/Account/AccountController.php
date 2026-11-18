@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Account;
 use App\Http\Controllers\Controller;
 use App\Models\Account;
 use App\Models\ShipmentRecipient;
+use App\Models\UploadRequest;
 use App\Services\AccountLogin;
 use App\Services\AccountMailer;
 use App\Services\DownloadService;
@@ -31,9 +32,19 @@ class AccountController extends Controller
     {
         $recipients = $this->account($request)->recipients()->latest('id')->get();
 
+        $requests = config('portal.uploads.enabled')
+            ? UploadRequest::with('apiClient')
+                ->where('email', $this->account($request)->email)
+                ->whereNull('closed_at')->whereNull('locked_at')
+                ->where('expires_at', '>', now())
+                ->latest('id')->get()
+                ->filter(fn (UploadRequest $r) => filled($r->apiClient?->upload_public_key) && $r->remainingFiles() > 0)
+            : collect();
+
         return response()->view('account.index', [
             'account' => $this->account($request),
             'recipients' => $recipients,
+            'requests' => $requests,
         ]);
     }
 

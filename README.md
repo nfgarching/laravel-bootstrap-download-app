@@ -8,10 +8,10 @@ Das Portal ist eine eigenständige Laravel-Anwendung für einen öffentlichen Se
 Es hat keinen Zugriff auf die interne Anwendung; alle Verbindungen gehen von innen
 nach außen.
 
-> **Stand: Phase 3 (Empfängerkonten), noch ungetestet.** Phase 1 und 2 laufen im
-> Testbetrieb. Der Code für die Empfängerkonten ist geschrieben, aber noch nicht in
-> einer Laravel-Installation gelaufen; geprüft sind Syntax und die TOTP-Berechnung
-> gegen die Testvektoren aus RFC 6238. Vor dem Einsatz `php artisan test` ausführen.
+> **Stand: Phase 4 (Rückkanal), noch ungetestet.** Phase 1 bis 3 laufen im
+> Testbetrieb, alle Tests grün. Der Code für den Rückkanal ist geschrieben, aber noch
+> nicht in einer Laravel-Installation gelaufen; geprüft sind Syntax sowie Versiegelung
+> und Entschlüsselung gegen den Vault. Vor dem Einsatz `php artisan test` ausführen.
 
 ## Was das Portal kann
 
@@ -28,7 +28,7 @@ nach außen.
 - „Nur nach Anmeldung“ je Empfänger (`require_login`), sobald für die Adresse ein Konto besteht
 - Docker-Setup hinter Traefik
 
-Noch nicht enthalten: Rückkanal (Upload, Phase 4).
+- **Rückkanal:** Die Kanzlei fordert Unterlagen per API an (persönlicher Upload-Link, optional mit Passwort); Kontoinhaber laden auch ohne Anforderung hoch. Jede Datei wird beim Eingang verschlüsselt und ihr Schlüssel mit dem öffentlichen Schlüssel der internen Anwendung versiegelt – das Portal kann eingegangene Dateien danach nicht mehr lesen. Eingangsbestätigung mit SHA-256 auf der Seite und per E-Mail. Abholung und Quittung über die API, nicht abgeholte Dateien werden nach 30 Tagen gelöscht.
 
 Zum Layout: `laravel-bootstrap-core` ist bewusst noch nicht eingebunden. Es bringt
 Livewire, Anmeldung und Registrierung mit und lädt Bootstrap vom CDN; das passt nicht
@@ -181,6 +181,24 @@ Eine freie Registrierung gibt es nicht. Ein Zurücksetzen per E-Mail ebenfalls n
 Es wäre nicht sicherer als die E-Mail selbst. Sind Passkey und Codes verloren,
 setzt die Kanzlei den Zugang mit `portal:account:reset` zurück; über den nächsten
 Link richtet die Person ihn neu ein.
+
+## Rückkanal
+
+1. In der internen Anwendung `php artisan share:keygen` ausführen. Das erzeugt das
+   Schlüsselpaar und hinterlegt den öffentlichen Schlüssel im Portal
+   (`PUT /api/v1/client/upload-key`). Ohne Schlüssel sind Upload-Links nicht erreichbar.
+2. Unterlagen anfordern: im Modal „Über Portal senden“ den Schalter „Unterlagen
+   anfordern“ setzen, aus der Dateiverwaltung „Anfordern“ oder per API
+   (`POST /api/v1/upload-requests`, siehe [docs/api.md](docs/api.md)).
+3. Der Empfänger öffnet `/u/…`, lädt hoch und erhält eine Eingangsbestätigung.
+   Kontoinhaber sehen offene Anforderungen im Konto und können unter
+   „Hochladen“ auch ohne Anforderung Unterlagen schicken (Tageslimit 1 GB).
+4. Die interne Anwendung holt alle fünf Minuten ab (`share:fetch-uploads`),
+   entschlüsselt, prüft die Prüfsumme und quittiert; erst dann löscht das Portal.
+
+Erlaubte Dateitypen, Größen und Fristen: `config/portal.php`, Abschnitt `uploads`.
+Die PHP-Grenze für Formular-Uploads steht in `docker/php.ini` (`upload_max_filesize`);
+nach einer Änderung das Image neu bauen.
 
 ## Sicherheit in Kürze
 

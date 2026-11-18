@@ -7,11 +7,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ApiClient extends Model
 {
-    public const ABILITIES = ['shipments:write', 'shipments:read', 'events:read'];
+    public const ABILITIES = ['shipments:write', 'shipments:read', 'events:read', 'uploads:write', 'uploads:read'];
 
     protected $fillable = ['name', 'token_hash', 'hmac_secret', 'abilities'];
 
-    protected $hidden = ['token_hash', 'hmac_secret'];
+    protected $hidden = ['token_hash', 'hmac_secret', 'upload_public_key'];
 
     protected function casts(): array
     {

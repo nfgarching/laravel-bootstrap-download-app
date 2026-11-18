@@ -3,7 +3,9 @@
 use App\Http\Controllers\Account\AccountController;
 use App\Http\Controllers\Account\LoginController;
 use App\Http\Controllers\Account\SetupController;
+use App\Http\Controllers\Account\UploadController as AccountUploadController;
 use App\Http\Controllers\DownloadController;
+use App\Http\Controllers\UploadController;
 use Illuminate\Support\Facades\Route;
 
 Route::view('/', 'home')->name('home');
@@ -14,6 +16,11 @@ Route::middleware('throttle:60,1')->group(function () {
     Route::post('/d/{token}/files/{file}', [DownloadController::class, 'download'])->name('download.file');
     Route::post('/d/{token}/zip', [DownloadController::class, 'downloadZip'])->name('download.zip');
     Route::post('/d/{token}/konto', [DownloadController::class, 'startAccount'])->name('download.account');
+
+    // Rückkanal: Upload über den Link einer Anforderung
+    Route::get('/u/{token}', [UploadController::class, 'show'])->name('upload.show');
+    Route::post('/u/{token}/unlock', [UploadController::class, 'unlock'])->name('upload.unlock');
+    Route::post('/u/{token}', [UploadController::class, 'store'])->name('upload.store');
 });
 
 /*
@@ -48,6 +55,11 @@ Route::prefix('konto')->name('account.')->middleware('throttle:60,1')->group(fun
         Route::get('sendungen/{recipient}', [AccountController::class, 'shipment'])->name('shipment');
         Route::post('sendungen/{recipient}/dateien/{file}', [AccountController::class, 'download'])->name('file');
         Route::post('sendungen/{recipient}/zip', [AccountController::class, 'zip'])->name('zip');
+
+        Route::get('hochladen', [AccountUploadController::class, 'create'])->name('upload');
+        Route::post('hochladen', [AccountUploadController::class, 'store'])->name('upload.store');
+        Route::get('anforderungen/{uuid}', [AccountUploadController::class, 'showRequest'])->name('request');
+        Route::post('anforderungen/{uuid}', [AccountUploadController::class, 'storeRequest'])->name('request.store');
 
         Route::get('sicherheit', [AccountController::class, 'security'])->name('security');
         Route::post('sicherheit/passkey/optionen', [AccountController::class, 'passkeyOptions'])->name('passkey.options');

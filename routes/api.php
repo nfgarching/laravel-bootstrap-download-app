@@ -3,6 +3,8 @@
 use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\ShipmentController;
 use App\Http\Controllers\Api\V1\ShipmentFileController;
+use App\Http\Controllers\Api\V1\UploadController;
+use App\Http\Controllers\Api\V1\UploadRequestController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -36,4 +38,26 @@ Route::middleware('throttle:240,1')->group(function () {
 
     Route::get('events', [EventController::class, 'index'])
         ->middleware('portal.api:events:read');
+
+    // Rückkanal
+    Route::put('client/upload-key', [UploadController::class, 'key'])
+        ->middleware('portal.api:uploads:write');
+
+    Route::post('upload-requests', [UploadRequestController::class, 'store'])
+        ->middleware('portal.api:uploads:write');
+
+    Route::get('upload-requests/{id}', [UploadRequestController::class, 'show'])
+        ->middleware('portal.api:uploads:read');
+
+    Route::delete('upload-requests/{id}', [UploadRequestController::class, 'destroy'])
+        ->middleware('portal.api:uploads:write');
+
+    Route::get('uploads', [UploadController::class, 'index'])
+        ->middleware('portal.api:uploads:read');
+
+    Route::get('uploads/{id}/content', [UploadController::class, 'content'])
+        ->middleware('portal.api:uploads:read');
+
+    Route::post('uploads/{id}/ack', [UploadController::class, 'ack'])
+        ->middleware('portal.api:uploads:write');
 });
