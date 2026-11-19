@@ -56,7 +56,7 @@ class UploadController extends ApiController
             ->limit((int) ($data['limit'] ?? 50))
             ->get();
 
-        return response()->json(['data' => $uploads->map(fn (Upload $u) => $this->present($u))->values()->all()]);
+        return response()->json(['data' => $uploads->map(fn (Upload $u) => $this->presentUpload($u))->values()->all()]);
     }
 
     /** Verschlüsselter Inhalt; der Schlüssel steht versiegelt in sealed_key. */
@@ -89,7 +89,7 @@ class UploadController extends ApiController
             $this->events->logUpload(EventLogger::UPLOAD_FETCHED, $upload->api_client_id, ['upload_id' => $upload->uuid]);
         }
 
-        return response()->json(['data' => $this->present($upload->fresh())]);
+        return response()->json(['data' => $this->presentUpload($upload->fresh())]);
     }
 
     private function find(Request $request, string $id): Upload
@@ -103,7 +103,7 @@ class UploadController extends ApiController
     }
 
     /** @return array<string, mixed> */
-    private function present(Upload $upload): array
+    private function presentUpload(Upload $upload): array
     {
         return [
             'id' => $upload->uuid,
