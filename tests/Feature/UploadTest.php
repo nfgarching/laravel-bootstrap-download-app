@@ -55,6 +55,13 @@ class UploadTest extends TestCase
                 $this->receipts[] = $email;
             }
 
+            public array $notices = [];
+
+            public function uploadNotice(iterable $uploads): void
+            {
+                $this->notices[] = count(collect($uploads));
+            }
+
             public function newShipment(Account $account): void {}
         };
         $this->app->instance(AccountMailer::class, $this->mailer);
@@ -114,6 +121,7 @@ class UploadTest extends TestCase
         ])->assertRedirect("/u/{$token}")->assertSessionHas('portal_receipt');
 
         $this->assertSame(['m@example.com'], $this->mailer->receipts);
+        $this->assertCount(1, $this->mailer->notices);
 
         // Mehr als erlaubt
         $this->post("/u/{$token}", ['files' => [

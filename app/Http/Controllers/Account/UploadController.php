@@ -95,6 +95,12 @@ class UploadController extends Controller
             // nicht entscheidend
         }
 
+        try {
+            $mailer->uploadNotice($stored);
+        } catch (Throwable) {
+            // Die Kanzlei sieht den Eingang auch über die API
+        }
+
         return redirect()->route('account.upload')
             ->with('portal_receipt', $stored->map(fn ($u) => ['name' => $u->name, 'size' => $u->size, 'sha256' => $u->sha256])->all())
             ->with('portal_receipt_time', now()->timezone(config('portal.display_timezone'))->format('d.m.Y H:i'));

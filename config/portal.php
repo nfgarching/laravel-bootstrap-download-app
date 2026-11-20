@@ -156,6 +156,8 @@ return [
         'request_expires_days' => (int) env('PORTAL_UPLOAD_REQUEST_DAYS', 14),
         // Uploads aus dem Konto ohne Anforderung: Tageslimit je Konto
         'account_daily_mb' => (int) env('PORTAL_UPLOAD_ACCOUNT_DAILY_MB', 1024),
+        // Hinweis-Mail an die Kanzlei bei jedem Eingang (leer = keine)
+        'notify_email' => env('PORTAL_NOTIFY_EMAIL'),
         // Nicht abgeholte Uploads werden danach gelöscht
         'keep_days' => (int) env('PORTAL_UPLOAD_KEEP_DAYS', 30),
         // Erlaubte Dateiendungen (Positivliste)

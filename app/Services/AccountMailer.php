@@ -105,6 +105,53 @@ class AccountMailer
             TEXT);
     }
 
+    /**
+     * Hinweis an die Kanzlei (portal.uploads.notify_email), dass Dateien
+     * eingegangen sind. Ohne Dateinamen und Nachricht: Die Inhalte holt nur die
+     * interne Anwendung über die API ab.
+     *
+     * @param  iterable<\App\Models\Upload>  $uploads
+     */
+    public function uploadNotice(iterable $uploads): void
+    {
+        $to = trim((string) config('portal.uploads.notify_email'));
+
+        if ($to === '') {
+            return;
+        }
+
+        $tz = config('portal.display_timezone', 'Europe/Berlin');
+        $count = 0;
+        $size = 0;
+        $first = null;
+
+        foreach ($uploads as $upload) {
+            $first ??= $upload;
+            $count++;
+            $size += (int) $upload->size;
+        }
+
+        if ($first === null) {
+            return;
+        }
+
+        $time = $first->created_at->timezone($tz)->format('d.m.Y H:i');
+        $from = trim(($first->sender_name ? $first->sender_name.' ' : '').'<'.$first->sender_email.'>');
+        $subject = $first->subject ?: '(ohne Betreff)';
+        $files = $count === 1 ? '1 Datei' : $count.' Dateien';
+        $mb = number_format($size / 1048576, 1, ',', '.');
+
+        $this->send($to, 'Neuer Upload im Dokumentenportal', <<<TEXT
+            Im Dokumentenportal sind am {$time} Uhr neue Unterlagen eingegangen.
+
+            Von:      {$from}
+            Betreff:  {$subject}
+            Umfang:   {$files}, {$mb} MB
+
+            Die Dateien liegen verschlüsselt zur Abholung über die interne Anwendung bereit.
+            TEXT);
+    }
+
     private function send(string $email, string $subject, string $text): void
     {
         $sender = (string) config('portal.sender_name');
